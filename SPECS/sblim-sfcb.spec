@@ -8,7 +8,7 @@ Name: sblim-sfcb
 Summary: Small Footprint CIM Broker
 URL: http://sblim.wiki.sourceforge.net/
 Version: 1.4.9
-Release: 34%{?dist}
+Release: 35%{?dist}
 License: EPL-1.0
 Source0: http://downloads.sourceforge.net/sblim/%{name}-%{version}.tar.bz2
 Source1: sfcb.service
@@ -41,6 +41,9 @@ Patch9: sblim-sfcb-1.4.9-fix-ppc-optimization-level.patch
 # Patch10: fixes docdir name and removes install of COPYING with license
 #   which is included through %%license
 Patch10: sblim-sfcb-1.4.9-docdir-license.patch
+# Patch11: adds configuration options to specify fallback SSL cert/key pair
+#   and disables default ECDH ephemeral key generation
+Patch11: sblim-sfcb-1.4.9-post-quantum.patch
 Provides: cim-server = 0
 Requires: cim-schema
 Requires: sblim-sfcCommon
@@ -71,17 +74,18 @@ Programming Interface (CMPI).
 
 %prep
 %setup -q -T -b 0 -n %{name}-%{version}
-%patch0 -p1 -b .sfcbrepos-schema-location
-%patch1 -p1 -b .fix-provider-debugging
-%patch2 -p1 -b .maxMsgLen
-%patch3 -p1 -b .service
-%patch4 -p1 -b .multilib-man-cfg
-%patch5 -p1 -b .default-ecdh-curve-name
-%patch6 -p1 -b .fix-ftbfs
-%patch7 -p1 -b .fix-null-deref
-%patch8 -p1 -b .fix-null-content-type-crash
-%patch9 -p1 -b .fix-ppc-optimization-level
-%patch10 -p1 -b .docdir-license
+%patch -P0 -p1 -b .sfcbrepos-schema-location
+%patch -P1 -p1 -b .fix-provider-debugging
+%patch -P2 -p1 -b .maxMsgLen
+%patch -P3 -p1 -b .service
+%patch -P4 -p1 -b .multilib-man-cfg
+%patch -P5 -p1 -b .default-ecdh-curve-name
+%patch -P6 -p1 -b .fix-ftbfs
+%patch -P7 -p1 -b .fix-null-deref
+%patch -P8 -p1 -b .fix-null-content-type-crash
+%patch -P9 -p1 -b .fix-ppc-optimization-level
+%patch -P10 -p1 -b .docdir-license
+%patch -P11 -p1 -b .post-quantum
 
 %build
 %configure --enable-debug --enable-uds --enable-ssl --enable-pam --enable-ipv6 \
@@ -140,6 +144,10 @@ fi;
 %files -f _pkg_list
 
 %changelog
+* Thu Aug 07 2025 Vitezslav Crhonek <vcrhonek@redhat.com> - 1.4.9-35
+- Support added for post-quantum cryptography
+  Resolves: RHEL-93092
+
 * Wed Nov 27 2024 Vitezslav Crhonek <vcrhonek@redhat.com> - 1.4.9-34
 - Bump release for rebuild
 
