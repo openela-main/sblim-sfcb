@@ -8,7 +8,7 @@ Name: sblim-sfcb
 Summary: Small Footprint CIM Broker
 URL: http://sblim.wiki.sourceforge.net/
 Version: 1.4.9
-Release: 25%{?dist}
+Release: 27%{?dist}
 License: EPL-1.0
 Source0: http://downloads.sourceforge.net/sblim/%{name}-%{version}.tar.bz2
 Source1: sfcb.service
@@ -16,6 +16,8 @@ Source1: sfcb.service
 Source2: sfcbdump.1.gz
 Source3: sfcbinst2mof.1.gz
 Source4: sfcbtrace.1.gz
+# /etc/tmpfiles.d configuration file
+Source5: sblim-sfcb.tmpfiles
 # Patch0: changes schema location to the path we use
 Patch0: sblim-sfcb-1.3.9-sfcbrepos-schema-location.patch
 # Patch1: Fix provider debugging - variable for stopping wait-for-debugger
@@ -41,6 +43,12 @@ Patch9: sblim-sfcb-1.4.9-fix-ppc-optimization-level.patch
 # Patch10: fixes docdir name and removes install of COPYING with license
 #   which is included through %%license
 Patch10: sblim-sfcb-1.4.9-docdir-license.patch
+# Patch11: use sscg to generate cert, openssl as fallback, obtain correct
+#   key length based upon crypto policy level
+Patch11: sblim-sfcb-1.4.9-ssl-certs-gen-changes.patch
+# Patch12: adds configuration options to specify fallback SSL cert/key pair
+#   and disables default ECDH ephemeral key generation
+Patch12: sblim-sfcb-1.4.9-post-quantum.patch
 Provides: cim-server = 0
 Requires: cim-schema
 Requires: sblim-sfcCommon
@@ -71,17 +79,25 @@ Programming Interface (CMPI).
 
 %prep
 %setup -q -T -b 0 -n %{name}-%{version}
-%patch0 -p1 -b .sfcbrepos-schema-location
-%patch1 -p1 -b .fix-provider-debugging
-%patch2 -p1 -b .maxMsgLen
-%patch3 -p1 -b .service
-%patch4 -p1 -b .multilib-man-cfg
-%patch5 -p1 -b .default-ecdh-curve-name
-%patch6 -p1 -b .fix-ftbfs
-%patch7 -p1 -b .fix-null-deref
-%patch8 -p1 -b .fix-null-content-type-crash
-%patch9 -p1 -b .fix-ppc-optimization-level
-%patch10 -p1 -b .docdir-license
+%patch -P0 -p1 -b .sfcbrepos-schema-location
+%patch -P1 -p1 -b .fix-provider-debugging
+%patch -P2 -p1 -b .maxMsgLen
+%patch -P3 -p1 -b .service
+%patch -P4 -p1 -b .multilib-man-cfg
+%patch -P5 -p1 -b .default-ecdh-curve-name
+%patch -P6 -p1 -b .fix-ftbfs
+%patch -P7 -p1 -b .fix-null-deref
+%patch -P8 -p1 -b .fix-null-content-type-crash
+%patch -P9 -p1 -b .fix-ppc-optimization-level
+%patch -P10 -p1 -b .docdir-license
+%patch -P11 -p1 -b .ssl-certs-gen-changes
+%patch -P12 -p1 -b .post-quantum
+
+# Create a sysusers.d config file
+cat >sblim-sfcb.sysusers.conf <<EOF
+g sfcb -
+m root sfcb
+EOF
 
 %build
 %configure --enable-debug --enable-uds --enable-ssl --enable-pam --enable-ipv6 \
@@ -117,29 +133,49 @@ echo "%{_libdir}/sfcb/*.so" >> _pkg_list
 
 cat _pkg_list
 
-%pre
-/usr/bin/getent group sfcb >/dev/null || /usr/sbin/groupadd -r sfcb
-/usr/sbin/usermod -a -G sfcb root > /dev/null 2>&1 || :
+install -m0644 -D sblim-sfcb.sysusers.conf %{buildroot}%{_sysusersdir}/sblim-sfcb.conf
+mkdir -p $RPM_BUILD_ROOT/%{_tmpfilesdir}
+install -p -D -m 644 %{SOURCE5} $RPM_BUILD_ROOT/%{_tmpfilesdir}/sblim-sfcb.conf
 
 %post 
 %{_datadir}/sfcb/genSslCert.sh %{_sysconfdir}/sfcb &>/dev/null || :
 /sbin/ldconfig
 %{_bindir}/sfcbrepos -f > /dev/null 2>&1
 %systemd_post sblim-sfcb.service
+# copy content of /var/lib/sfcb to temporary place for Image Mode
+(mkdir -p /usr/share/factory/var/lib && cp -a /var/lib/sfcb /usr/share/factory/var/lib/sfcb) >/dev/null 2>&1 || :;
 
 %preun
 %systemd_preun sblim-sfcb.service
+if [ $1 -eq 0 ]; then
+   # Package removal, not upgrade
+   rm -rf /usr/share/factory/var/lib/sfcb
+fi
 
 %postun
 /sbin/ldconfig
 %systemd_postun_with_restart sblim-sfcb.service
-if [ $1 -eq 0 ]; then
-        /usr/sbin/groupdel sfcb > /dev/null 2>&1 || :;
-fi;
 
 %files -f _pkg_list
+%{_sysusersdir}/sblim-sfcb.conf
+%{_tmpfilesdir}/sblim-sfcb.conf
 
 %changelog
+* Fri Jan 30 2026 Vitezslav Crhonek <vcrhonek@redhat.com> - 1.4.9-27
+- Add support for post-quantum cryptography
+  Resolves: RHEL-127515
+
+* Tue Sep 30 2025 Vitezslav Crhonek <vcrhonek@redhat.com> - 1.4.9-26
+- Update OpenSSL certificates set up
+  Resolves: RHEL-118293
+- Eliminate use of obsolete %patchN syntax
+  Related: RHEL-91101
+- Add sysusers.d config file to allow rpm to create users/groups automatically
+  and drop attempt to delete group
+  Related: RHEL-91101
+- Add support for Image Mode
+  Resolves: RHEL-91101
+
 * Thu Jan 27 2022 Vitezslav Crhonek <vcrhonek@redhat.com> - 1.4.9-25
 - Change build flags, fix errors during the start of the service
 

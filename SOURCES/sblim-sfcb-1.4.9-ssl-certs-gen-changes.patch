@@ -1,0 +1,71 @@
+diff -up sblim-sfcb-1.4.9/genSslCert.sh.orig sblim-sfcb-1.4.9/genSslCert.sh
+--- sblim-sfcb-1.4.9/genSslCert.sh.orig	2014-11-25 02:43:10.000000000 +0100
++++ sblim-sfcb-1.4.9/genSslCert.sh	2025-10-07 11:23:59.201504832 +0200
+@@ -4,6 +4,44 @@ HOSTNAME=`uname -n`
+ DO_SERVER=yes
+ DO_CLIENT=yes
+ DIR=`mktemp -d /var/tmp/sfcb.XXXXXX` || exit 1
++DAYS=365
++# Get minimum RSA key length at current security level
++# This workarounds openssl not enforcing min. key length enforced by current security level
++KEYSIZE=`grep min_rsa_size /etc/crypto-policies/state/CURRENT.pol 2>/dev/null | cut -d ' ' -f 3`
++if [ -z "$KEYSIZE" ]; then
++    KEYSIZE=2048  # fallback to safe default
++fi
++
++function create_ssl_cnf()
++{
++cat > $DIR/ssl.cnf <<EOF
++[req]
++distinguished_name=user_dn
++prompt=no
++
++[user_dn]
++CN=$HOSTNAME
++emailAddress=root@$HOSTNAME
++EOF
++}
++
++function selfsign_sscg()
++{
++    sscg --quiet \
++         --lifetime "${DAYS}" \
++         --cert-key-file "${DIR}"/key.pem \
++         --cert-file "${DIR}"/cert.pem \
++         --ca-file "${DIR}"/ca.crt \
++         --hostname "${HOSTNAME}" \
++         --email root@"{$HOSTNAME}"
++}
++
++function selfsign_openssl()
++{
++    openssl req -x509 -days $DAYS -newkey rsa:$KEYSIZE \
++       -nodes -config $DIR/ssl.cnf   \
++       -keyout $DIR/key.pem -out $DIR/cert.pem
++}
+ 
+ trap "rm -rf $DIR" exit
+ 
+@@ -28,19 +66,10 @@ then
+     exit 0
+ fi
+ 
+-cat > $DIR/ssl.cnf <<EOF
+-[req]
+-distinguished_name=user_dn
+-prompt=no
+-
+-[user_dn]
+-CN=$HOSTNAME
+-emailAddress=root@$HOSTNAME
+-EOF
++create_ssl_cnf
+ 
+-openssl req -x509 -days 365 -newkey rsa:2048 \
+-   -nodes -config $DIR/ssl.cnf   \
+-   -keyout $DIR/key.pem -out $DIR/cert.pem
++# If sscg fails, try openssl
++selfsign_sscg || selfsign_openssl
+ 
+ chmod 700 $DIR/*.pem
+ 
